@@ -7,6 +7,7 @@
 #include <Fonts/FreeMono9pt7b.h>
 #include <Fonts/FreeSansBold9pt7b.h>
 #include <ArduinoJson.h>
+#include <AnimatedGIF.h>
 #include "FS.h"
 #include "SPIFFS.h"
 
@@ -29,8 +30,8 @@ const char* announce_topic = "comms_panel_announce";
 const char* control_topic = "comms_panel_control";
 
 PubSubClient mqtt_client;
-char _payload[40];
-bool _payload_changed = false;
+char msg_payload[40];
+bool msg_payload_changed = false;
 
 // SPIFFS Settings
 #define FORMAT_SPIFFS_IF_FAILED true
@@ -40,11 +41,18 @@ const uint16_t matrix_width = 64;
 const uint16_t matrix_height = 64;
 
 MatrixPanel_I2S_DMA dma_display;
-GFXcanvas1 canvas(matrix_width, matrix_height); 
+GFXcanvas16 overlay_canvas(matrix_width, matrix_height); 
 unsigned long matrix_last_update = 0;
 uint8_t default_matrix_brightness = matrix_width / 2;
 
-// Config Settinsg
+// AnimatedGIF Settings
+
+AnimatedGIF gif;
+File gif_file;
+unsigned long start_tick = 0;
+bool gif_loaded = false;
+
+// Config Settings
 const char *config_filename = "/config.txt";
 
 struct Config {
@@ -240,8 +248,8 @@ void saveConfiguration(const char *filename, const Config &config) {
 // MQTT Functions
 
 void store_payload(const char* payload) {
-  strcpy(_payload, payload);
-  _payload_changed = true;
+  strcpy(msg_payload, payload);
+  msg_payload_changed = true;
 }
 
 void parse_mqtt_payload(const char* payload) {
@@ -295,62 +303,217 @@ void reconnect() {
 
 // Matrix Funtions
 
-void draw_centered_text(char* text, int x, bool center_x, int y, bool center_y, 
+void draw_centered_text(Adafruit_GFX* canvas, const char* text, int x, 
+    bool center_x, int y, bool center_y, 
     int size, int r, int g, int b, const GFXfont* font) {
   int16_t  x1, y1, xa, ya;
   uint16_t w, h;
 
-  dma_display.setFont(font);
-  dma_display.setTextSize(size);
-  dma_display.setTextColor(dma_display.color565(r, g, b));
-  dma_display.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+  canvas->setFont(font);
+  canvas->setTextSize(size);
+  canvas->setTextColor(dma_display.color565(r, g, b));
+  canvas->getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
   // Serial.print("x1: "); Serial.print(x1);
   // Serial.print(", y1: "); Serial.print(y1);
   // Serial.print(", w: "); Serial.print(w);
   // Serial.print(", h: "); Serial.println(h);
   xa = x;
   if (center_x) {
-    xa = (dma_display.width() - (w - 1)) / 2 - x1;
+    xa = (canvas->width() - (w - 1)) / 2 - x1;
   } else if (x < 0) {
-    xa = dma_display.width() - (w - 1) + x - x1 - 1;
+    xa = canvas->width() - (w - 1) + x - x1 - 1;
   }
   ya = y;
   if (center_y) {
-    ya = (dma_display.height() - (h - 1)) / 2 - y1; 
+    ya = (canvas->height() - (h - 1)) / 2 - y1; 
   } else if (y < 0) {
-    ya = dma_display.height() - (h - 1) + y - y1 - 1;
+    ya = canvas->height() - (h - 1) + y - y1 - 1;
   }
   // Serial.print("xa: "); Serial.print(xa);
   // Serial.print(", ya: "); Serial.println(ya);
-  dma_display.setCursor(xa, ya); 
-  dma_display.print(text);
+  canvas->setCursor(xa, ya); 
+  canvas->print(text);
 }
 
-void draw() {
+void draw_overlay() {
   // Clear screen and set some text defaults
-  dma_display.fillScreen(dma_display.color444(0, 0, 0));
-  dma_display.setTextSize(1);     // size 1 == 8 pixels high
-  dma_display.setTextWrap(false);
-  dma_display.setPanelBrightness(config.matrix_brightness);
+  overlay_canvas.setTextSize(1);     // size 1 == 8 pixels high
+  overlay_canvas.setTextWrap(false);
+  overlay_canvas.fillScreen(dma_display.color444(0, 0, 0));
 
-  // canvas.fillScreen(dma_display.color444(0, 0, 0));
-  // canvas.setTextWrap(false);
+  // MQTT status
+  if (!mqtt_client.connected()) {
+    overlay_canvas.drawCircle(overlay_canvas.width() - 2, 2, 2, 
+      dma_display.color565(255, 0, 0));
+  }
 
   // Payload - TODO 
-  if (strlen(_payload) > 0) {
-    draw_centered_text(_payload, -1, true, -1, true, 1, 255, 106, 0, &FreeSansBold9pt7b);
-    _payload_changed = false;
+  if (strlen(msg_payload) > 0) {
+    draw_centered_text(&overlay_canvas, msg_payload, -1, true, -1, true, 
+      1, 255, 106, 0, &FreeSansBold9pt7b);
+    msg_payload_changed = false;
   }
 
   // Time and date
   time_t t = time_client.getEpochTime();
   char buf[50];
   sprintf(buf, "%04d/%02d/%02d", year(t), month(t), day(t));
-  draw_centered_text(buf, -1, true, 1, false, 1, 255, 0, 0, NULL);
+  draw_centered_text(&overlay_canvas, buf, -1, true, 1, false, 1, 255, 0, 0, NULL);
   sprintf(buf, "%02d:%02d", hour(t), minute(t));
-  draw_centered_text(buf, -1, true, -1, false, 1, 255, 238, 0, &FreeSansBold9pt7b);
-  // dma_display.drawBitmap(0, 0, canvas.getBuffer(), canvas.width(), canvas.height(),
-  //   dma_display.color565(r, g, b), dma_display.color444(0, 0, 0));
+  draw_centered_text(&overlay_canvas, buf, -1, true, -1, false, 
+    1, 255, 238, 0, &FreeSansBold9pt7b);
+}
+
+// AnimatedGIF Functions
+
+// Draw a line of image directly on the LED Matrix
+void gif_draw(GIFDRAW *pDraw) {
+  uint8_t *s;
+  uint16_t *d, *usPalette, usTemp[320];
+  int x, y, iWidth;
+
+  iWidth = pDraw->iWidth;
+  if (iWidth > MATRIX_WIDTH) iWidth = MATRIX_WIDTH;
+
+  usPalette = pDraw->pPalette;
+  y = pDraw->iY + pDraw->y; // current line
+  
+  s = pDraw->pPixels;
+  if (pDraw->ucDisposalMethod == 2) { // restore to background color
+    for (x=0; x<iWidth; x++) {
+      if (s[x] == pDraw->ucTransparent)
+          s[x] = pDraw->ucBackground;
+    }
+    pDraw->ucHasTransparency = 0;
+  }
+  // Apply the new pixels to the main image
+  if (pDraw->ucHasTransparency) { // if transparency used
+    uint8_t *pEnd, c, ucTransparent = pDraw->ucTransparent;
+    int x, iCount;
+    pEnd = s + pDraw->iWidth;
+    x = 0;
+    iCount = 0; // count non-transparent pixels
+    while (x < pDraw->iWidth) {
+      c = ucTransparent-1;
+      d = usTemp;
+      while (c != ucTransparent && s < pEnd) {
+        c = *s++;
+        if (c == ucTransparent) { // done, stop
+          s--; // back up to treat it like transparent
+        } else { // opaque
+          *d++ = usPalette[c];
+          iCount++;
+        }
+      }
+      if (iCount) { // any opaque pixels?
+        for (int xOffset = 0; xOffset < iCount; xOffset++ ){
+          dma_display.drawPixelRGB565(x + xOffset, y, usTemp[xOffset]);
+        }
+        x += iCount;
+        iCount = 0;
+      }
+      // no, look for a run of transparent pixels
+      c = ucTransparent;
+      while (c == ucTransparent && s < pEnd) {
+        c = *s++;
+        if (c == ucTransparent)
+          iCount++;
+        else
+          s--; 
+      }
+      if (iCount) {
+        x += iCount; // skip these
+        iCount = 0;
+      }
+    }
+  } else { // does not have transparency
+    s = pDraw->pPixels;
+    // Translate the 8-bit pixels through the RGB565 palette (already byte reversed)
+    for (x = 0; x < pDraw->iWidth; x++) {
+      dma_display.drawPixelRGB565(x, y, usPalette[*s++]);
+    }
+  }
+  // Apply the overlay - TODO: Should be done inside the above loops
+  for (x = 0; x < pDraw->iWidth; x++) {
+    uint16_t c = overlay_canvas.getPixel(x, y);
+    if (c > 0) {
+      dma_display.drawPixel(x, y, c);
+    }
+  }
+}
+
+void * gif_open_file(const char *fname, int32_t *pSize) {
+  gif_file = SPIFFS.open(fname);
+  if (gif_file) {
+    *pSize = gif_file.size();
+    return (void *)&gif_file;
+  }
+  return NULL;
+}
+
+void gif_close_file(void *pHandle) {
+  File *gif_file = static_cast<File *>(pHandle);
+  if (gif_file != NULL)
+     gif_file->close();
+}
+
+int32_t gif_read_file(GIFFILE *pFile, uint8_t *pBuf, int32_t iLen) {
+    int32_t iBytesRead;
+    iBytesRead = iLen;
+    File *gif_file = static_cast<File *>(pFile->fHandle);
+    // Note: If you read a file all the way to the last byte, seek() stops working
+    if ((pFile->iSize - pFile->iPos) < iLen)
+       iBytesRead = pFile->iSize - pFile->iPos - 1; // <-- ugly work-around
+    if (iBytesRead <= 0)
+       return 0;
+    iBytesRead = (int32_t)gif_file->read(pBuf, iBytesRead);
+    pFile->iPos = gif_file->position();
+    return iBytesRead;
+}
+
+int32_t gif_seek_file(GIFFILE *pFile, int32_t iPosition) { 
+  int i = micros();
+  File *gif_file = static_cast<File *>(pFile->fHandle);
+  gif_file->seek(iPosition);
+  pFile->iPos = (int32_t)gif_file->position();
+  i = micros() - i;
+//  Serial.printf("Seek time = %d us\n", i);
+  return pFile->iPos;
+}
+
+void show_gif_loop(const char* name) {
+  start_tick = millis();
+  int x_offset, y_offset;
+   
+  if (gif.open(name, gif_open_file, gif_close_file, gif_read_file, gif_seek_file, gif_draw))   {
+    x_offset = (MATRIX_WIDTH - gif.getCanvasWidth())/2;
+    if (x_offset < 0) x_offset = 0;
+    y_offset = (MATRIX_HEIGHT - gif.getCanvasHeight())/2;
+    if (y_offset < 0) y_offset = 0;
+    Serial.printf("Successfully opened GIF; Canvas size = %d x %d\n", gif.getCanvasWidth(), gif.getCanvasHeight());
+    Serial.flush();
+    while (gif.playFrame(true, NULL))     {      
+      if ( (millis() - start_tick) > 8000) { // we'll get bored after about 8 seconds of the same looping gif
+        break;
+      }
+    }
+    gif.close();
+  }
+}
+
+void load_gif(const char* name) {
+  int x_offset, y_offset;
+  if (gif.open(name, gif_open_file, gif_close_file, gif_read_file, gif_seek_file, gif_draw)) {
+    x_offset = (MATRIX_WIDTH - gif.getCanvasWidth())/2;
+    if (x_offset < 0) x_offset = 0;
+    y_offset = (MATRIX_HEIGHT - gif.getCanvasHeight())/2;
+    if (y_offset < 0) y_offset = 0;
+    Serial.printf("Successfully opened GIF; Canvas size = %d x %d\n", gif.getCanvasWidth(), gif.getCanvasHeight());
+    Serial.flush();
+    gif_loaded = true;
+  } else {
+    Serial.printf("Failed to open GIF: %s\n", name);
+  }
 }
 
 // Arduino Functions
@@ -392,7 +555,10 @@ void setup() {
   dma_display.setPanelBrightness(config.matrix_brightness);
   dma_display.begin();
   dma_display.fillScreen(dma_display.color444(0, 0, 0));
-  
+
+  // AnimatedGIF setup  
+  gif.begin(LITTLE_ENDIAN_PIXELS);
+
   // Allow the hardware to sort itself out
   delay(1500);
 }
@@ -404,18 +570,17 @@ void loop() {
   if (ntp_last_update == 0 || 
       current_secs - ntp_last_update > ntp_update_interval_secs) {
     Serial.println("NTP updating time...");
+    if (ntp_last_update == 0) {
+      draw_centered_text(&dma_display, "NTP", -1, true, -1, true, 
+        1, 0, 0, 255, NULL);
+    }
     while (!time_client.update()) {
+      Serial.println("NTP forcing update...");
       time_client.forceUpdate();
     }
-    // if (ntp_last_update == 0) {
-    //   if (!time_client.forceUpdate()) {
-    //     Serial.println("NTP force update failed!");
-    //   }
-    // } else {
-    //   if (!time_client.update()) {
-    //     Serial.println("NTP update failed!");
-    //   }
-    // }
+    if (ntp_last_update == 0) {
+        dma_display.clearScreen();
+    }
     current_secs = time_client.getEpochTime();
     ntp_last_update = current_secs;
     setTime(current_secs);
@@ -430,10 +595,27 @@ void loop() {
   mqtt_client.loop();
 
   // Matrix loop
-  if (_payload_changed || matrix_last_update == 0 ||
+  if (msg_payload_changed || matrix_last_update == 0 ||
       current_secs - matrix_last_update > 1) {
-    draw();
-    _payload_changed = false;
+    draw_overlay();
+    msg_payload_changed = false;
     matrix_last_update = current_secs;
   }
+
+  // AnimatedGIF loop
+  int delayMillisecs;
+  if (gif_loaded) {
+    if (gif.playFrame(false, &delayMillisecs) < 0) {
+      Serial.println("Failed to play GIF frame.");
+    }
+  } else {
+    load_gif("/gifs/Alien2.gif");
+  }
+
+  dma_display.setPanelBrightness(config.matrix_brightness);
+  Serial.printf("Sleeping for (msecs): %d\n", delayMillisecs);
+  if (delayMillisecs > 0) {
+    delay(delayMillisecs); // sleep till the end of the frame
+  }
+  // TODO: better loop here and call playFrame in time?
 }

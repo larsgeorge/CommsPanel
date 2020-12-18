@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"name": "CommsPanel",
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.tcc": "cpp",
+			"tuple": "cpp",
+			"cmath": "cpp",
+			"functional": "cpp",
+			"random": "cpp"
+		}
+	}
+}
