@@ -14,6 +14,8 @@ extern "C" {
 #include "FS.h"
 #include "SPIFFS.h"
 
+#include <Credentials.h>
+
 // Generic
 char buffer[80];
 
@@ -23,10 +25,6 @@ const uint32_t ntp_update_interval_secs = 3600; // 1h
 WiFiUDP ntp_UDP;
 NTPClient time_client(ntp_UDP);
 unsigned long ntp_last_update = 0;
-
-// WiFi
-const char* ssid = "Cyclone-IoT";
-const char* password =  "9n*2KVn4kkHw";
 
 WiFiClient wifi_client;
 
@@ -124,7 +122,7 @@ void scanNetworks() {
 }
  
 void connectToNetwork() {
-  WiFi.begin(ssid, password);
+  WiFi.begin(WLAN_IOT_SSID, WLAN_IOT_PASSWORD);
   while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
     Serial.println(F("Establishing connection to WiFi.."));
