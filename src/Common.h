@@ -9,21 +9,17 @@
 #endif
 
 #include "Debug.h"
-#include <Credentials.h>
 
 class CommonClass {
   private:
-    const char* _hostname;
-
     String translateEncryptionType(wifi_auth_mode_t encryptionType);
 
   public:
     CommonClass();
     void begin();  
-    void begin(const char* hostname);  
 
     void scanNetworks();
-    void connectToNetwork(const char* hostname);
+    void connectToNetwork(const char* hostname, const char* ssid, const char* password);
 };
 
 extern CommonClass Common;

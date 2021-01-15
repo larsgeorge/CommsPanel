@@ -6,10 +6,6 @@ CommonClass::CommonClass() {
 void CommonClass::begin() {
 }
 
-void CommonClass::begin(const char* hostname) {
-  _hostname = hostname;
-}
-
 String CommonClass::translateEncryptionType(wifi_auth_mode_t encryptionType) {
   switch (encryptionType) {
     case (WIFI_AUTH_OPEN):
@@ -48,9 +44,9 @@ void CommonClass::scanNetworks() {
   }
 }
  
-void CommonClass::connectToNetwork(const char* hostname) {
+void CommonClass::connectToNetwork(const char* hostname, const char* ssid, const char* password) {
   WiFi.setHostname(hostname);
-  WiFi.begin(WLAN_IOT_SSID, WLAN_IOT_PASSWORD);
+  WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
     Debug.println(F("Establishing connection to WiFi.."));

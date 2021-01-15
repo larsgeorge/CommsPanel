@@ -43,6 +43,7 @@ void ConfigClass::update_config(const JsonDocument &doc) {
   //   store_payload(doc["message"]);
   // }
   _config.brightness = doc["brightness"] | DEFAULT_MATRIX_BRIGHTNESS;
+  _config.show_gif = doc["show_gif"] | DEFAULT_SHOW_GIF;
   _config.show_time = doc["show_time"] | DEFAULT_SHOW_TIME;
   _config.color_time = long_to_color(std::strtol(doc["color_time"] | DEFAULT_COLOR_TIME, NULL, 0));
   _config.show_date = doc["show_date"] | DEFAULT_SHOW_DATE;
@@ -84,6 +85,7 @@ void ConfigClass::save_config(const char* filename, const ConfigData &config) {
   }
   StaticJsonDocument<512> doc;
   doc["brightness"] = _config.brightness;
+  doc["show_gif"] = _config.show_gif;
   doc["show_time"] = _config.show_time;
   doc["color_time"] = _config.color_time;
   doc["show_date"] = _config.show_date;

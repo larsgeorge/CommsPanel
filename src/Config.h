@@ -21,6 +21,7 @@ class ConfigClass {
 
     typedef struct ConfigFields {
       int brightness;
+      bool show_gif;
       bool show_time;
       uint16_t color_time;
       bool show_date;
@@ -38,6 +39,7 @@ class ConfigClass {
 
   private:
     const uint8_t DEFAULT_MATRIX_BRIGHTNESS = MATRIX_WIDTH / 2;
+    const bool DEFAULT_SHOW_GIF = true;
     const bool DEFAULT_SHOW_TIME = true;
     const char* DEFAULT_COLOR_TIME = "0xFFEE00";
     const bool DEFAULT_SHOW_DATE = true;
